@@ -1,0 +1,13 @@
+# --- SECURITY: Never include secrets in your image ---
+.env
+
+# --- OPTIMIZATION: Keep the image small and clean ---
+.venv
+.git
+__pycache__
+
+
+docker-compose.yml
+.terraform
+*.tfstate
+

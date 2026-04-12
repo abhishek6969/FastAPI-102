@@ -1,0 +1,70 @@
+# docker-compose.yml
+# This file is the ORCHESTRATOR. Think of it as the "building manager"
+# who decides which services (rooms) exist, how they connect, and what
+# environment each one gets.
+
+services:
+  # ---- Service 1: The FastAPI Application ----
+  api:
+    build:
+      context: . # Build from the Dockerfile in this directory
+      dockerfile: Dockerfile
+    container_name: shopping-api
+    ports:
+      - "8000:8000" # HOST_PORT:CONTAINER_PORT mapping
+      # Left side (8000): The port on YOUR machine (localhost:8000)
+      # Right side (8000): The port INSIDE the container
+      # This is the actual port "publishing" that EXPOSE in Dockerfile doesn't do.
+    volumes:
+      - .:/app # Mount local ./app into container's /app/app
+      # This is a BIND MOUNT: changes on your host filesystem are
+      # instantly visible inside the container (and vice versa).
+      # Combined with --reload in Dockerfile, this gives you hot-reload.
+    env_file:
+      - .env # Load environment variables from .env file
+    depends_on:
+      db:
+        condition: service_healthy # Wait for DB to be READY, not just started
+    networks:
+      - shop-network
+
+  # ---- Service 2: PostgreSQL Database ----
+  db:
+    image: postgres:16-alpine # Alpine = even smaller than slim (~80MB)
+    container_name: shopping-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shopuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shoppass@123}
+      POSTGRES_DB: ${POSTGRES_DB:-shopping_db}
+      # ${VAR:-default}: Uses .env value if set, otherwise uses default.
+      # This is shell parameter expansion syntax.
+    ports:
+      - "5432:5432" # Expose DB for local tools like pgAdmin/DBeaver
+    volumes:
+      - pgdata:/var/lib/postgresql/data # NAMED VOLUME for persistence
+      # Unlike bind mounts, named volumes are managed by Docker.
+      # Data survives container restarts and rebuilds.
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shopuser} -d ${POSTGRES_DB:-shopping_db}" ]
+      interval: 5s # Check every 5 seconds
+      timeout: 5s # Fail if check takes longer than 5s
+      retries: 5 # Mark unhealthy after 5 failures
+      # pg_isready: A PostgreSQL utility that checks if the server
+      # is accepting connections. This is what "service_healthy" depends on.
+    networks:
+      - shop-network
+
+# ---- Named Volumes ----
+volumes:
+  pgdata:
+    # Docker creates this volume on your host's filesystem.
+    # On Windows with Docker Desktop, it lives inside the WSL2 VM.
+
+    # ---- Networks ----
+networks:
+  shop-network:
+    driver: bridge
+    # Bridge network: Containers get their own IP addresses on a virtual
+    # subnet. They can reach each other by SERVICE NAME (e.g., "db").
+    # This is why our POSTGRES_HOST in the app settings MUST be "db".
+    # This is Docker's built-in DNS resolution.

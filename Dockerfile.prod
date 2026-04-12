@@ -1,0 +1,39 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# ---- SSH Setup for Azure ----
+# Azure uses Port 2222 for its "Web SSH" feature. 
+# It requires the root password to be "Docker!" to complete the handshake.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-server && \
+    echo "root:Docker!" | chpasswd
+
+# Copy custom SSH configuration (allows root login via Port 2222)
+COPY sshd_config /etc/ssh/
+
+# ---- Standard Setup ----
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Make entrypoint executable
+RUN chmod +x ./entrypoint.sh
+
+# Expose 8000 for App, 2222 for SSH
+EXPOSE 8000 2222
+
+# Launch using entrypoint
+ENTRYPOINT ["./entrypoint.sh"]
+
+# ========== DATABASE MIGRATIONS (MANUAL PROCESS) ==========
+# For automated database migrations via Alembic:
+# Uncomment below and run in a separate deployment step or within the container:
+#
+# export $(cat /proc/1/environ | tr '\0' '\n' | xargs)
+# alembic upgrade head
+#
+# Use same login for seeding database.
+# Note: This should be automated in CI/CD pipeline for zero-downtime deployments

@@ -1,0 +1,38 @@
+# Core Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+# uvicorn[standard] installs extras: uvloop (faster event loop on Linux),
+# httptools (faster HTTP parsing), and websockets support.
+
+# Database
+sqlalchemy==2.0.35
+asyncpg==0.29.0
+# asyncpg: A PURE async PostgreSQL driver written in Cython.
+# Unlike psycopg2 which blocks the event loop, asyncpg uses
+# PostgreSQL's native binary protocol for ~3x faster queries.
+
+# Settings & Validation
+pydantic==2.9.0
+pydantic-settings==2.5.0
+# pydantic-settings reads environment variables and .env files,
+# then validates them against your Python type hints at startup.
+# If DATABASE_URL is missing, your app crashes IMMEDIATELY — not
+# 10 minutes later when the first DB query runs.
+
+# Migrations
+alembic==1.13.2
+# Alembic is the "version control for your database schema."
+# It generates migration scripts that transform your DB schema
+# from version N to version N+1 (and back).
+
+# Security (for later: auth, password hashing)
+passlib[bcrypt]==1.7.4
+email-validator==2.2.0
+psycopg2-binary==2.9.9
+
+argon2-cffi==23.1.0
+
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+gunicorn==21.2.0
+
