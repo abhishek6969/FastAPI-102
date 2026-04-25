@@ -126,8 +126,67 @@ jobs:
   #      the previous sha tag without touching the code at all.
   #   2. Restart App Service to pull and load the new container.
   # ──────────────────────────────────────────────────────────────────────────
-  deploy:
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 3: MIGRATE
+  # Runs BEFORE the new container is deployed.
+  # Applies any pending Alembic migrations to the PRODUCTION database.
+  # Seeds the admin user (seed_admin.py catches duplicates — safe on every run).
+  #
+  # Why before deploy?
+  #   Old app is still running while migrations execute. If migration fails,
+  #   the old container keeps serving traffic — no downtime, no broken state.
+  # ──────────────────────────────────────────────────────────────────────────
+  migrate:
     needs: build-and-push
+    runs-on: ubuntu-latest
+
+    env:
+      # Production DB credentials — different from the test DB used in the test job
+      DATABASE_HOSTNAME: ${{ secrets.PROD_DB_HOSTNAME }}
+      DATABASE_USERNAME: ${{ secrets.PROD_DB_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${{ secrets.PROD_DB_NAME }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      # Admin seed credentials — read by seed_admin.py via get_settings()
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Alembic migrations
+        run: alembic upgrade head
+
+      # seed_admin.py catches IntegrityError if admin already exists.
+      # Safe to run on every deploy — idempotent in practice.
+      - name: Seed admin user
+        run: python seed_admin.py
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 4: DEPLOY
+  # Only runs after migrations succeed.
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    needs: migrate
     runs-on: ubuntu-latest
 
     steps:
