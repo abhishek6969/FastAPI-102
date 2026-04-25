@@ -1,0 +1,160 @@
+name: FastAPI-102
+
+# ─── TRIGGERS ────────────────────────────────────────────────────────────────
+# This workflow runs in two situations:
+#   1. push to main   → full pipeline (test + build + deploy)
+#   2. pull_request   → test only (code review gate, no deploy)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 1: TEST
+  # Runs on EVERY push and EVERY PR.
+  # Connects to the Azure test DB (shopping_db_test) using secrets.
+  # If any test fails → pipeline stops here. Build never runs.
+  # ──────────────────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest   # GitHub provides a fresh Ubuntu VM for this job
+
+    env:
+      # These values override the D:-prefixed defaults in pytest.ini.
+      # The Azure test DB lives at a real hostname — not localhost.
+      DATABASE_HOSTNAME: ${{ secrets.TEST_DB_HOSTNAME }}
+      DATABASE_USERNAME: ${{ secrets.TEST_DB_USERNAME }}
+      DATABASE_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
+      DATABASE_PORT: "5432"      # Azure PostgreSQL uses 5432 (not 5433 like local Docker)
+      DATABASE_NAME: fastapi_test # The test database — NOT the production database
+
+    steps:
+      # Pull the code from GitHub onto the runner VM
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install Python 3.10 on the runner
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      # ── CACHE STEP ──────────────────────────────────────────────────────────
+      # GitHub runners are fresh VMs — pip re-downloads every package each run.
+      # This step saves the downloaded packages after the first run and restores
+      # them on subsequent runs, skipping the download entirely.
+      #
+      # key: a fingerprint built from OS + hash of requirements.txt
+      #   Same requirements.txt → same hash → cache HIT → packages restored in ~3s
+      #   Changed requirements.txt → new hash → cache MISS → fresh download + save
+      #
+      # restore-keys: a fallback prefix. If no exact key match exists,
+      #   GitHub tries a cache that starts with this prefix (slightly stale
+      #   is still faster than downloading everything from scratch).
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # Install all packages (uses cache if available, downloads if not)
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Run the full test suite (27 tests across 5 files)
+      - name: Run test suite
+        run: pytest -v --disable-warnings
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 2: BUILD AND PUSH
+  #
+  # needs: test → this job CANNOT start until the test job succeeds.
+  #              If tests fail, this job is skipped entirely.
+  #
+  # if: condition → this job only runs on an actual push to main.
+  #   Without this guard, PRs would also build and push images — wasteful
+  #   and potentially dangerous (unreviewed code in your Docker registry).
+  #
+  #   github.ref == 'refs/heads/main'    → we're on the main branch
+  #   github.event_name == 'push'        → this is a push, not a PR merge event
+  #
+  # Two image tags are pushed:
+  #   :latest    → always points to the newest successful build
+  #   :sha       → pinned to the exact commit (used for rollbacks)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Authenticate with Docker Hub using an access token (not your password).
+      # Access tokens can be scoped and revoked independently.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build using Dockerfile.prod (not Dockerfile — that's the dev version).
+      # Dockerfile.prod includes Azure SSH setup (port 2222) required by App Service.
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod    # Azure-ready image with SSH config
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:${{ github.sha }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JOB 3: DEPLOY
+  #
+  # needs: build-and-push → only runs after the image is confirmed in Docker Hub.
+  #
+  # Two steps:
+  #   1. Tell App Service which exact image to run (pinned to sha, not latest).
+  #      Using sha means a bad deploy can be rolled back by pointing to
+  #      the previous sha tag without touching the code at all.
+  #   2. Restart App Service to pull and load the new container.
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      # Log into Azure using a Service Principal.
+      # AZURE_CREDENTIALS is a JSON blob created via:
+      #   az ad sp create-for-rbac --name "fastapi-102-cicd" \
+      #     --role contributor \
+      #     --scopes /subscriptions/<ID>/resourceGroups/<RG> \
+      #     --sdk-auth
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # Update the App Service to use the new image.
+      # Pinned to github.sha (not latest) so we know exactly which build is running.
+      - name: Update App Service container image
+        run: |
+          az webapp config container set \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --docker-custom-image-name \
+              docker.io/${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:${{ github.sha }}
+
+      # Restart triggers App Service to pull the newly tagged image and reload.
+      - name: Restart App Service
+        run: |
+          az webapp restart \
+            --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
