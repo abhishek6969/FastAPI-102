@@ -2,6 +2,7 @@
 # FILES ARE PURPOSELY INCLUDED AS THIS IS A LEARNING DEMO (FastAPI-102)
 # We include the .env file to make this a "Plug and Play" experience.
 # =========================================================================
+CONTEXT.md
 
 # --- INCLUDE ---
 !.env

@@ -53,6 +53,30 @@ services:
       # is accepting connections. This is what "service_healthy" depends on.
     networks:
       - shop-network
+  db_test:
+    image: postgres:16-alpine # Alpine = even smaller than slim (~80MB)
+    container_name: shopping-db_test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shopuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shoppass@123}
+      POSTGRES_DB: ${POSTGRES_DB:-shopping_db_test}
+      # ${VAR:-default}: Uses .env value if set, otherwise uses default.
+      # This is shell parameter expansion syntax.
+    ports:
+      - "5433:5432" # Expose DB for local tools like pgAdmin/DBeaver
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data # NAMED VOLUME for persistence
+      # Unlike bind mounts, named volumes are managed by Docker.
+      # Data survives container restarts and rebuilds.
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shopuser} -d ${POSTGRES_DB:-shopping_db_test}" ]
+      interval: 5s # Check every 5 seconds
+      timeout: 5s # Fail if check takes longer than 5s
+      retries: 5 # Mark unhealthy after 5 failures
+      # pg_isready: A PostgreSQL utility that checks if the server
+      # is accepting connections. This is what "service_healthy" depends on.
+    networks:
+      - shop-network
 
 # ---- Named Volumes ----
 volumes:
@@ -61,6 +85,7 @@ volumes:
     # On Windows with Docker Desktop, it lives inside the WSL2 VM.
 
     # ---- Networks ----
+  pgdata_test:
 networks:
   shop-network:
     driver: bridge
