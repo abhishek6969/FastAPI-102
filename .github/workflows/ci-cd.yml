@@ -13,12 +13,33 @@ on:
 jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
+  # JOB 0: LINT
+  # Fast quality check. Runs on every push and PR.
+  # Ensures code follows style guidelines before expensive tests run.
+  # ──────────────────────────────────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff (Linting)
+        run: ruff check .
+
+  # ──────────────────────────────────────────────────────────────────────────
   # JOB 1: TEST
-  # Runs on EVERY push and EVERY PR.
-  # Connects to the Azure test DB (shopping_db_test) using secrets.
-  # If any test fails → pipeline stops here. Build never runs.
+  # Runs only if lint job passes.
   # ──────────────────────────────────────────────────────────────────────────
   test:
+    needs: lint
     runs-on: ubuntu-latest   # GitHub provides a fresh Ubuntu VM for this job
 
     env:
@@ -114,6 +135,11 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:${{ github.sha }}
+          # ── DOCKER CACHING ──
+          # Saves built layers to GitHub's internal cache storage.
+          # Subsequent builds will pull these layers instead of re-calculating them.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ──────────────────────────────────────────────────────────────────────────
   # JOB 3: DEPLOY
