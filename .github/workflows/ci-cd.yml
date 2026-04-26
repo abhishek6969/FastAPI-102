@@ -14,9 +14,7 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # JOB 1: TEST
-  # Runs on EVERY push and EVERY PR.
-  # Connects to the Azure test DB (shopping_db_test) using secrets.
-  # If any test fails → pipeline stops here. Build never runs.
+  # Runs only if lint job passes.
   # ──────────────────────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest   # GitHub provides a fresh Ubuntu VM for this job
@@ -114,6 +112,11 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/fastapi-102:${{ github.sha }}
+          # ── DOCKER CACHING ──
+          # Saves built layers to GitHub's internal cache storage.
+          # Subsequent builds will pull these layers instead of re-calculating them.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ──────────────────────────────────────────────────────────────────────────
   # JOB 3: DEPLOY
