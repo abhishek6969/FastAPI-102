@@ -101,6 +101,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # ── ENABLE CACHING SUPPORT ──
+      # The default Docker driver on GitHub runners doesn't support GHA caching.
+      # Buildx (docker-container driver) is required to export layers to GitHub's cache.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # Build using Dockerfile.prod (not Dockerfile — that's the dev version).
       # Dockerfile.prod includes Azure SSH setup (port 2222) required by App Service.
       - name: Build and push image
