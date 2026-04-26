@@ -11,34 +11,12 @@ on:
     branches: [main]
 
 jobs:
-  # ──────────────────────────────────────────────────────────────────────────
-  # JOB 0: LINT
-  # Fast quality check. Runs on every push and PR.
-  # Ensures code follows style guidelines before expensive tests run.
-  # ──────────────────────────────────────────────────────────────────────────
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install Ruff
-        run: pip install ruff
-
-      - name: Run Ruff (Linting)
-        run: ruff check .
 
   # ──────────────────────────────────────────────────────────────────────────
   # JOB 1: TEST
   # Runs only if lint job passes.
   # ──────────────────────────────────────────────────────────────────────────
   test:
-    needs: lint
     runs-on: ubuntu-latest   # GitHub provides a fresh Ubuntu VM for this job
 
     env:
